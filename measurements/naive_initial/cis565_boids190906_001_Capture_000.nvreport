@@ -1,0 +1,16 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<AnalysisReport Version="1.0">
+  <ProcessId>80272</ProcessId>
+  <ReportCreationTime>2019-09-06T21:51:24.0976159-04:00</ReportCreationTime>
+  <ReportDirectory>c:\temp\cis565_boids190906_001\cis565_boids190906_001_Capture_000</ReportDirectory>
+  <ReportFile>c:\temp\cis565_boids190906_001\cis565_boids190906_001_Capture_000\cis565_boids190906_001_Capture_000.nvreport</ReportFile>
+  <CaptureStartQpcTimestamp>7734727040782</CaptureStartQpcTimestamp>
+  <CaptureStartNveTimestamp>2707187408000426</CaptureStartNveTimestamp>
+  <CaptureStartNveFrequency>3500000000</CaptureStartNveFrequency>
+  <CaptureEndQpcTimestamp>7735810591628</CaptureEndQpcTimestamp>
+  <CaptureEndNveTimestamp>2707566650164692</CaptureEndNveTimestamp>
+  <CaptureStartRdtscTimestamp>2707187408000480</CaptureStartRdtscTimestamp>
+  <CaptureEndRdtscTimestamp>2707566650165055</CaptureEndRdtscTimestamp>
+  <CaptureStartFileTimeTimestamp>132122946842638128</CaptureStartFileTimeTimestamp>
+  <CaptureEndFileTimeTimestamp>132122947926197821</CaptureEndFileTimeTimestamp>
+</AnalysisReport>
