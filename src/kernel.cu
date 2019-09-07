@@ -153,7 +153,7 @@ void Boids::initSimulation(int N) {
 
   // LOOK-1.2 - This is a typical CUDA kernel invocation.
   kernGenerateRandomPosArray<<<fullBlocksPerGrid, blockSize>>>(1, numObjects,
-    dev_pos, scene_scale);
+ dev_pos, scene_scale);
   checkCUDAErrorWithLine("kernGenerateRandomPosArray failed!");
 
   // LOOK-2.1 computing grid params
@@ -224,6 +224,97 @@ void Boids::copyBoidsToVBO(float *vbodptr_positions, float *vbodptr_velocities) 
 ******************/
 
 /**
+* boidCohesionRuleNaive()
+* boids move towards the perceived center of mass of their neighbors
+* 
+* Cohesion depends soley on the position of each boid, so we want to calculate the center of mass.
+* Assuming each boid weighs the same, the center of mass is simply the average position.
+* Therefore, we add each component of each boid and divide.
+* NOTE: For the Naive implementation, this means each thread is going to be doing the same exact work.
+*       That is super bad and goes against the idea of distributing work. This becomes a non-issue
+*       when each boid looks only at their local neighbors, as each boid will have a different subset
+*       to look at.
+*/
+__device__ glm::vec3 boidCohesionRuleNaive(int N, int iSelf, const glm::vec3 *pos, const glm::vec3 *vel) {
+	glm::vec3 result(0.0f);
+	glm::vec3 perceived_center(0.0f);
+	glm::vec3 selfPos = pos[iSelf];
+	float neighbors = 0.0f;
+
+	for (int i = 0; i < N; i++) {
+		if ((i != iSelf) && (glm::distance(selfPos, pos[i]) < rule1Distance)) {
+			perceived_center += pos[i];
+			neighbors++;
+		}
+	}
+
+	if (neighbors) {
+		perceived_center /= neighbors;
+		result = (perceived_center - selfPos) * rule1Scale;
+	}
+
+	return result;
+}
+
+/**
+* boidSeperationRuleNaive()
+* boids avoid getting to close to their neighbors
+*
+* In this rule, the boid is repulsed by nearby boids. To represent that, we take the distance
+* between the boid and the neighbor boids and add the disance between the two as a sacled negative velocity.
+* This has the effect of pushing each boid away from his neighbors. Note that a boid on either side will contribute
+* to opposite directions.
+*/
+__device__ glm::vec3 boidSeperationRuleNaive(int N, int iSelf, const glm::vec3 *pos, const glm::vec3 *vel) {
+	glm::vec3 result(0.0f);
+	glm::vec3 seperation(0.0f);
+	glm::vec3 selfPos = pos[iSelf];
+	float neighbors = 0.0f;
+
+	for (int i = 0; i < N; i++) {
+		if ((i != iSelf) && (glm::distance(selfPos, pos[i]) < rule2Distance)) {
+			seperation -= pos[i] - selfPos;
+			neighbors++;
+		}
+	}
+
+	if (neighbors) {
+		result = seperation * rule2Scale;
+	}
+
+	return result;
+}
+
+/**
+* boidAlignmentRuleNaive()
+* boids generally try to move with the same direction and speed as their neighbors
+*
+* Boids want to match the velocit of their neighbors at t=a, so they will adjust their velocity accordingly.
+* After each round, at t=a+dt, each boid will apply their change.
+*/
+__device__ glm::vec3 boidAlignmentRuleNaive(int N, int iSelf, const glm::vec3 *pos, const glm::vec3 *vel) {
+	glm::vec3 result(0.0f);
+	glm::vec3 perceived_velocity(0.0f);
+	glm::vec3 selfPos = pos[iSelf];
+	glm::vec3 selfVelocity = vel[iSelf];
+	float neighbors = 0.0f;
+
+	for (int i = 0; i < N; i++) {
+		if ((i != iSelf) && (glm::distance(selfPos, pos[i]) < rule3Distance)) {
+			perceived_velocity += vel[i];
+			neighbors++;
+		}
+	}
+
+	if (neighbors) {
+		perceived_velocity /= neighbors;
+		result = perceived_velocity * rule3Scale;
+	}
+
+	return result;
+}
+
+/**
 * LOOK-1.2 You can use this as a helper for kernUpdateVelocityBruteForce.
 * __device__ code can be called from a __global__ context
 * Compute the new velocity on the body with index `iSelf` due to the `N` boids
@@ -233,7 +324,27 @@ __device__ glm::vec3 computeVelocityChange(int N, int iSelf, const glm::vec3 *po
   // Rule 1: boids fly towards their local perceived center of mass, which excludes themselves
   // Rule 2: boids try to stay a distance d away from each other
   // Rule 3: boids try to match the speed of surrounding boids
-  return glm::vec3(0.0f, 0.0f, 0.0f);
+
+	glm::vec3 delta(0.0f);
+
+	// Apply each rule.
+	delta += boidCohesionRuleNaive(N, iSelf, pos, vel);
+	delta += boidSeperationRuleNaive(N, iSelf, pos, vel);
+	delta += boidAlignmentRuleNaive(N, iSelf, pos, vel);
+
+	return delta;
+}
+
+__device__ float kernClamp(float f, float min, float max) {
+	if (f < min) {
+		return min;
+	}
+	else if (f > max) {
+		return max;
+	}
+	else {
+		return f;
+	}
 }
 
 /**
@@ -244,7 +355,25 @@ __global__ void kernUpdateVelocityBruteForce(int N, glm::vec3 *pos,
   glm::vec3 *vel1, glm::vec3 *vel2) {
   // Compute a new velocity based on pos and vel1
   // Clamp the speed
-  // Record the new velocity into vel2. Question: why NOT vel1?
+  // Record the new velocity into vel2. Question: why NOT vel1? 
+  // Answer: Other threads may still be reading vel1!!
+
+	int index = threadIdx.x + (blockIdx.x * blockDim.x);
+	if (index >= N) {
+		return;
+	}
+
+	glm::vec3 curntV = vel1[index];
+	glm::vec3 deltaV = computeVelocityChange(N, index, pos, vel1);
+	glm::vec3 newV = curntV + deltaV;
+
+	// Clamp the speed. We do it this way to ensure that the total velocity is clamped,
+	// not just the velocity in each direction (otherwise glm::clamp would be nice).
+	if (glm::length(newV) > maxSpeed) {
+		newV = glm::normalize(newV) * maxSpeed;
+	}
+	
+	vel2[index] = newV;
 }
 
 /**
@@ -347,8 +476,16 @@ __global__ void kernUpdateVelNeighborSearchCoherent(
 * Step the entire N-body simulation by `dt` seconds.
 */
 void Boids::stepSimulationNaive(float dt) {
-  // TODO-1.2 - use the kernels you wrote to step the simulation forward in time.
-  // TODO-1.2 ping-pong the velocity buffers
+	// TODO-1.2 - use the kernels you wrote to step the simulation forward in time.
+	// TODO-1.2 ping-pong the velocity buffers
+
+	dim3 fullBlocksPerGrid((numObjects + blockSize - 1) / blockSize);
+	kernUpdateVelocityBruteForce<<<fullBlocksPerGrid, blockSize>>>(numObjects, dev_pos, dev_vel1, dev_vel2);
+	kernUpdatePos<<<fullBlocksPerGrid, blockSize>>>(numObjects, dt, dev_pos, dev_vel2); // Use new velocity!
+
+	auto tmp = dev_vel1;
+	dev_vel1 = dev_vel2;
+	dev_vel2 = tmp;
 }
 
 void Boids::stepSimulationScatteredGrid(float dt) {
