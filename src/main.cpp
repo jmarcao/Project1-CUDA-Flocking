@@ -13,9 +13,10 @@
 // ================
 
 // LOOK-2.1 LOOK-2.3 - toggles for UNIFORM_GRID and COHERENT_GRID
-#define VISUALIZE 1
+#define VISUALIZE 0
 #define UNIFORM_GRID 1
 #define COHERENT_GRID 1
+#define GET_METRICS 1
 
 // LOOK-1.2 - change this to adjust particle count in the simulation
 const int N_FOR_VIS = 5000;
@@ -222,7 +223,18 @@ void initShaders(GLuint * program) {
 	
 	// For recording purposes, sometimes helpful to wait until user input to start
 	//getchar();
-    while (!glfwWindowShouldClose(window)) {
+	
+	// Begin Performance metrics.
+	int frames = 0;
+	cudaEvent_t start, stop;
+	cudaEventCreate(&start);
+	cudaEventCreate(&stop);
+
+	cudaEventRecord(start);
+    while (!glfwWindowShouldClose(window) && frames < 10000 ) {
+#ifdef GET_METRICS
+	  frames++;
+#endif
       glfwPollEvents();
 
       frame++;
@@ -258,6 +270,17 @@ void initShaders(GLuint * program) {
       glfwSwapBuffers(window);
       #endif
     }
+	// Metrics
+	cudaEventRecord(stop);
+	cudaEventSynchronize(stop);
+	float milliseconds = 0;
+	cudaEventElapsedTime(&milliseconds, start, stop);
+
+	printf("Boids: %d\n", N_FOR_VIS);
+	printf("Uniform Grid? %d\nCoherent Grid? %d\n", UNIFORM_GRID, COHERENT_GRID);
+	printf("Average milliseconds/Frame: %f\n", milliseconds / frames);
+	printf("Average FPS: %f\n", frames / (milliseconds / 1000));
+
     glfwDestroyWindow(window);
     glfwTerminate();
   }
