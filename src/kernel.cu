@@ -183,10 +183,10 @@ void Boids::initSimulation(int N) {
   cudaMalloc((void**)&dev_particleGridIndices, N * sizeof(int));
   checkCUDAErrorWithLine("cudaMalloc dev_particleGridIndices failed!");
 
-  cudaMalloc((void**)&dev_gridCellStartIndices, N * sizeof(int));
+  cudaMalloc((void**)&dev_gridCellStartIndices, gridCellCount * sizeof(int));
   checkCUDAErrorWithLine("cudaMalloc dev_gridCellStartIndices failed!");
 
-  cudaMalloc((void**)&dev_gridCellEndIndices, N * sizeof(int));
+  cudaMalloc((void**)&dev_gridCellEndIndices, gridCellCount * sizeof(int));
   checkCUDAErrorWithLine("cudaMalloc dev_gridCellEndIndices failed!");
 
   // Thrust buffers, used for prallel sorting
@@ -782,9 +782,9 @@ void Boids::stepSimulationScatteredGrid(float dt) {
 	);
 
 	// Locate start and stop indicies
-	kernResetIntBuffer<<<fullBlocksPerGrid, blockSize >>>(numObjects, dev_gridCellStartIndices, -1);
+	kernResetIntBuffer<<<fullBlocksPerGrid, blockSize >>>(gridCellCount, dev_gridCellStartIndices, -1);
 	checkCUDAErrorWithLine("kernResetIntBuffer1 failed!");
-	kernResetIntBuffer<<<fullBlocksPerGrid, blockSize >>>(numObjects, dev_gridCellEndIndices,   -1);
+	kernResetIntBuffer<<<fullBlocksPerGrid, blockSize >>>(gridCellCount, dev_gridCellEndIndices,   -1);
 	checkCUDAErrorWithLine("kernResetIntBuffer2 failed!");
 	kernIdentifyCellStartEnd<<<fullBlocksPerGrid, blockSize >>> (
 		numObjects,
